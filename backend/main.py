@@ -6,15 +6,15 @@ Handles API endpoints with threading and streaming support
 import os
 import json
 import asyncio
-from typing import List, Optional
+from typing import Union,Annotated, List, Optional
 from concurrent.futures import ThreadPoolExecutor
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Security, status, File, UploadFile, Body, Query, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 
-from ai_assist import ai_assistant
+from ai_assist import ai_assistant, talk_to_gemini
 
 # --- Thread Pool Configuration ---
 # Configure thread pool with minimum 4 threads for parallel processing
@@ -114,6 +114,7 @@ origins = [
     "http://localhost",
     "http://localhost:8000",
     "http://localhost:5173",
+    "http://localhost:3000",
 ]
 
 app.add_middleware(
@@ -316,3 +317,8 @@ def health_check():
             "active": thread_pool is not None
         }
     }
+
+@app.post("/check-gemini")
+def check(text:Annotated[str, Body()]):
+    
+    return StreamingResponse(talk_to_gemini(text))

@@ -1,14 +1,19 @@
 """
 AI Assistant Module for Campaign Generation
-Handles all AI-related operations using Google Gemini API
+Handles all AI-related operations using Google Gemini API and OpenAI via OpenRouter
 """
 
 import os
 import json
-from typing import Dict, Any, AsyncGenerator
+from typing import Dict, Any, AsyncGenerator, List
 from dotenv import load_dotenv
-import google.generativeai as genai
-from google.generativeai.types import GenerationConfig
+import base64
+from google import genai
+from google.genai import types
+import mimetypes
+import asyncio
+from openai import OpenAI
+
 
 # Load environment variables
 load_dotenv()
@@ -18,42 +23,67 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set")
 
-genai.configure(api_key=GEMINI_API_KEY)
+# Configure OpenRouter API
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_KEY")
+if not OPENROUTER_API_KEY:
+    raise ValueError("OPENROUTER_KEY environment variable not set")
+
+#genai.configure(api_key=GEMINI_API_KEY)
+
+
+def save_binary_file(file_name: str, data: bytes):
+    """Helper to persist binary data returned by Gemini image generation"""
+    with open(file_name, "wb") as f:
+        f.write(data)
+    print(f"File saved to: {file_name}")
 
 
 class AIAssistant:
     """Main AI Assistant class handling all Gemini API interactions"""
 
     def __init__(self):
-        self.campaign_model = genai.GenerativeModel('gemini-1.5-flash')
-        self.image_model = genai.GenerativeModel('gemini-1.5-flash-image')
+        # Initialize a Google Gemini client instance following the latest SDK pattern
+        self.client = genai.Client(api_key=GEMINI_API_KEY)
+        self.campaign_model = "gemini-2.5-flash"
+        self.image_model = "gemini-2.5-flash-image"
+
+        # Initialize OpenAI client for OpenRouter
+        self.openai_client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=OPENROUTER_API_KEY,
+        )
 
     async def generate_campaign_assets(
         self,
         prompt: str,
         brand_kit: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Generate complete campaign assets based on user prompt and brand kit
-
-        Args:
-            prompt: Campaign description from user
-            brand_kit: Dictionary containing brand guidelines (name, colors)
-
-        Returns:
-            Dictionary containing complete campaign assets
-        """
+        """Generate complete campaign assets based on user prompt and brand kit (non-streaming)."""
         system_prompt = self._build_campaign_prompt(brand_kit)
-        final_prompt = f'{system_prompt}\n\nCampaign Description: "{prompt}"'
+        final_prompt = f"{system_prompt}\n\nCampaign Description: \"{prompt}\""
+
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=final_prompt)],
+            )
+        ]
+
+        config = types.GenerateContentConfig(response_modalities=["TEXT"])
+
+        full_text = ""
+        for chunk in self.client.models.generate_content_stream(
+            model=self.campaign_model,
+            contents=contents,
+            config=config,
+        ):
+            if chunk.text:
+                full_text += chunk.text
 
         try:
-            response = await self.campaign_model.generate_content_async(
-                final_prompt,
-                generation_config=GenerationConfig(response_mime_type="application/json")
-            )
-            return json.loads(response.text)
-        except Exception as e:
-            print(f"Error generating campaign assets: {e}")
+            return json.loads(full_text)
+        except json.JSONDecodeError as e:
+            print(f"Failed to decode JSON from Gemini response: {e}\nRaw: {full_text}")
             raise
 
     async def generate_campaign_assets_stream(
@@ -61,101 +91,119 @@ class AIAssistant:
         prompt: str,
         brand_kit: Dict[str, Any]
     ) -> AsyncGenerator[str, None]:
-        """
-        Generate complete campaign assets with streaming support
-
-        Args:
-            prompt: Campaign description from user
-            brand_kit: Dictionary containing brand guidelines (name, colors)
-
-        Yields:
-            JSON chunks as they are generated
-        """
+        """Generate campaign assets and yield JSON chunks as they stream from Gemini."""
         system_prompt = self._build_campaign_prompt(brand_kit)
-        final_prompt = f'{system_prompt}\n\nCampaign Description: "{prompt}"'
+        final_prompt = f"{system_prompt}\n\nCampaign Description: \"{prompt}\""
 
-        try:
-            response = await self.campaign_model.generate_content_async(
-                final_prompt,
-                generation_config=GenerationConfig(response_mime_type="application/json"),
-                stream=True
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=final_prompt)],
             )
+        ]
 
-            async for chunk in response:
-                if chunk.text:
-                    yield chunk.text
-        except Exception as e:
-            print(f"Error in streaming campaign assets: {e}")
-            raise
+        config = types.GenerateContentConfig(response_modalities=["TEXT"])
 
-    async def generate_image_asset(self, prompt: str) -> str:
-        """
-        Generate image asset from text prompt
+        for chunk in self.client.models.generate_content_stream(
+            model=self.campaign_model,
+            contents=contents,
+            config=config,
+        ):
+            if chunk.text:
+                yield chunk.text
 
-        Args:
-            prompt: Image generation prompt
+    async def generate_image_asset(self, prompt: str, file_prefix: str = "image") -> None:
+        """Asynchronously generate an image and save it to disk using a thread executor."""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._generate_image_asset_sync, prompt, file_prefix)
 
-        Returns:
-            Base64-encoded image data
-        """
-        try:
-            response = await self.image_model.generate_content_async(prompt)
+    def _generate_image_asset_sync(self, prompt: str, file_prefix: str = "image") -> None:
+        """Blocking helper that implements the actual Gemini call (extracted from original implementation)."""
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=prompt)],
+            )
+        ]
+        generate_content_config = types.GenerateContentConfig(
+            response_modalities=["IMAGE", "TEXT"],
+            image_config=types.ImageConfig(image_size="1K"),
+        )
 
-            for part in response.candidates[0].content.parts:
-                if part.inline_data:
-                    return part.inline_data.data
+        file_index = 0
+        for chunk in self.client.models.generate_content_stream(
+            model=self.image_model,
+            contents=contents,
+            config=generate_content_config,
+        ):
+            if (
+                chunk.candidates is None
+                or chunk.candidates[0].content is None
+                or chunk.candidates[0].content.parts is None
+            ):
+                continue
 
-            raise ValueError("No image data found in response")
-        except Exception as e:
-            print(f"Error generating image asset: {e}")
-            raise
+            part = chunk.candidates[0].content.parts[0]
+            if part.inline_data and part.inline_data.data:
+                file_name = f"{file_prefix}_{file_index}"
+                file_index += 1
+                data_buffer = part.inline_data.data
+                file_extension = mimetypes.guess_extension(part.inline_data.mime_type)
+                save_binary_file(f"{file_name}{file_extension}", data_buffer)
+            else:
+                print(chunk.text)
 
     async def generate_image_asset_stream(self, prompt: str) -> AsyncGenerator[str, None]:
-        """
-        Generate image asset with streaming support
+        """Stream image data (base64) or text chunks from Gemini."""
+        contents = [types.Content(role="user", parts=[types.Part.from_text(text=prompt)])]
+        config = types.GenerateContentConfig(
+            response_modalities=["IMAGE", "TEXT"],
+            image_config=types.ImageConfig(image_size="1K"),
+        )
 
-        Args:
-            prompt: Image generation prompt
+        for chunk in self.client.models.generate_content_stream(
+            model=self.image_model,
+            contents=contents,
+            config=config,
+        ):
+            if (
+                chunk.candidates is None
+                or chunk.candidates[0].content is None
+                or chunk.candidates[0].content.parts is None
+            ):
+                continue
 
-        Yields:
-            Base64-encoded image data chunks
-        """
-        try:
-            response = await self.image_model.generate_content_async(prompt, stream=True)
-
-            async for chunk in response:
-                for part in chunk.candidates[0].content.parts:
-                    if part.inline_data:
-                        yield part.inline_data.data
-        except Exception as e:
-            print(f"Error in streaming image asset: {e}")
-            raise
+            part = chunk.candidates[0].content.parts[0]
+            if part.inline_data and part.inline_data.data:
+                yield part.inline_data.data  # binary chunk (base64)
+            else:
+                yield chunk.text
 
     async def generate_landing_page_variant(
         self,
         brand_name: str,
         landing_page_content: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Generate A/B test variant of landing page
-
-        Args:
-            brand_name: Name of the brand
-            landing_page_content: Original landing page content
-
-        Returns:
-            Dictionary containing variant landing page content
-        """
+        """Generate an A/B test variant of the landing page (non-streaming)."""
         prompt = self._build_variant_prompt(brand_name, landing_page_content)
 
+        contents = [
+            types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
+        ]
+        config = types.GenerateContentConfig(response_modalities=["TEXT"])
+
+        full_text = ""
+        for chunk in self.client.models.generate_content_stream(
+            model=self.campaign_model,
+            contents=contents,
+            config=config,
+        ):
+            if chunk.text:
+                full_text += chunk.text
         try:
-            response = await self.campaign_model.generate_content_async(
-                prompt,
-                generation_config=GenerationConfig(response_mime_type="application/json")
-            )
-            return json.loads(response.text)
-        except Exception as e:
-            print(f"Error generating landing page variant: {e}")
+            return json.loads(full_text)
+        except json.JSONDecodeError as e:
+            print(f"Failed to decode JSON for landing page variant: {e}\nRaw: {full_text}")
             raise
 
     async def generate_landing_page_variant_stream(
@@ -163,31 +211,71 @@ class AIAssistant:
         brand_name: str,
         landing_page_content: Dict[str, Any]
     ) -> AsyncGenerator[str, None]:
-        """
-        Generate A/B test variant with streaming support
-
-        Args:
-            brand_name: Name of the brand
-            landing_page_content: Original landing page content
-
-        Yields:
-            JSON chunks of variant landing page content
-        """
+        """Stream A/B test variant chunks as they arrive from Gemini."""
         prompt = self._build_variant_prompt(brand_name, landing_page_content)
+        contents = [types.Content(role="user", parts=[types.Part.from_text(text=prompt)])]
+        config = types.GenerateContentConfig(response_modalities=["TEXT"])
 
+        for chunk in self.client.models.generate_content_stream(
+            model=self.campaign_model,
+            contents=contents,
+            config=config,
+        ):
+            if chunk.text:
+                yield chunk.text
+
+    async def generate_lp_variant_openrouter(
+        self,
+        brand_name: str,
+        landing_page_content: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Generate an A/B test variant of the landing page using OpenRouter API (non-streaming)."""
+        prompt = self._build_variant_prompt(brand_name, landing_page_content)
+        messages = [{"role": "user", "content": prompt}]
+
+        completion = self.openai_client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "<YOUR_SITE_URL>",  # Optional. Site URL for rankings on openrouter.ai.
+                "X-Title": "<YOUR_SITE_NAME>",  # Optional. Site title for rankings on openrouter.ai.
+            },
+            extra_body={},
+            model="openrouter/polaris-alpha",
+            messages=messages,
+        )
+        full_text = completion.choices[0].message.content
         try:
-            response = await self.campaign_model.generate_content_async(
-                prompt,
-                generation_config=GenerationConfig(response_mime_type="application/json"),
-                stream=True
-            )
-
-            async for chunk in response:
-                if chunk.text:
-                    yield chunk.text
-        except Exception as e:
-            print(f"Error in streaming landing page variant: {e}")
+            return json.loads(full_text)
+        except json.JSONDecodeError as e:
+            print(f"Failed to decode JSON for landing page variant: {e}\nRaw: {full_text}")
             raise
+
+    async def generate_lp_variant_openrouter_stream(
+        self,
+        brand_name: str,
+        landing_page_content: Dict[str, Any]
+    ) -> AsyncGenerator[str, None]:
+        """Generate an A/B test variant of the landing page using openrouter api"""
+        prompt = self._build_variant_prompt(brand_name, landing_page_content)
+        messages = [{"role": "user", "content": prompt}]
+
+        loop = asyncio.get_event_loop()
+        for chunk in await loop.run_in_executor(None, self._openai_stream, messages):
+            yield chunk
+
+    def _openai_stream(self, messages: List[Dict[str, Any]]):
+        """Helper method to perform OpenAI streaming in a thread."""
+        for chunk in self.openai_client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "<YOUR_SITE_URL>",  # Optional. Site URL for rankings on openrouter.ai.
+                "X-Title": "<YOUR_SITE_NAME>",  # Optional. Site title for rankings on openrouter.ai.
+            },
+            extra_body={},
+            model="openrouter/polaris-alpha",
+            messages=messages,
+            stream=True,
+        ):
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
 
     def _build_campaign_prompt(self, brand_kit: Dict[str, Any]) -> str:
         """Build the system prompt for campaign generation"""
@@ -236,3 +324,26 @@ class AIAssistant:
 
 # Singleton instance
 ai_assistant = AIAssistant()
+
+
+def talk_to_gemini(text):
+    client = genai.Client(
+        api_key=GEMINI_API_KEY,
+    )
+    model = "gemini-2.5-flash"
+    contents = [
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_text(text=text),
+            ],
+        ),
+    ]
+    generate_content_config = types.GenerateContentConfig(
+        thinking_config = types.ThinkingConfig(
+            thinking_budget=-1,
+        )
+    )
+
+    for chunk in client.models.generate_content_stream(model=model,contents=contents,config=generate_content_config,):
+        yield chunk.text

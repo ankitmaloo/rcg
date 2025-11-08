@@ -8,4 +8,8 @@ dependencies = [
     "google-genai>=0.7.2",
     "pydantic>=2.8.2",
     "python-dotenv>=1.0.1",
+    "google-generativeai",
+    "uvloop",
+    "python-multipart",
+    "openai>=1.51.2",
 ]
