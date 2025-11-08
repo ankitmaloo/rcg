@@ -45,6 +45,10 @@ const generateLandingPageHtml = (landingPage: LandingPageContent, brand: Campaig
 const generateFullHtml = (assets: CampaignAssets): string => {
   const { brand, landingPage, landingPageB, seo, tracking, heroImageUrl, font, logo } = assets;
 
+  if (!landingPage) {
+    return '<!-- Landing page content is missing -->';
+  }
+
   const fontName = font || 'Sora';
   const fontClass = {
     'Sora': 'font-sans', 'Inter': 'font-inter', 'Poppins': 'font-poppins', 'Roboto': 'font-roboto', 'Lato': 'font-lato',
@@ -132,14 +136,26 @@ const generateFullHtml = (assets: CampaignAssets): string => {
 
 const DeploymentView: React.FC<DeploymentViewProps> = ({ assets, onRestart }) => {
   const [copied, setCopied] = useState(false);
-  const fullHtml = generateFullHtml(assets);
+  const [copiedVariant, setCopiedVariant] = useState(false);
+
+  const baseHtml = assets.landingPageHtml
+    ?? (assets.landingPage ? generateFullHtml(assets) : '<!-- Landing page HTML unavailable -->');
+  const variantHtml = assets.landingPageBHtml
+    ?? (assets.landingPageB ? generateLandingPageHtml(assets.landingPageB, assets.brand, 'variant-b') : undefined);
   const subdomain = `${assets.brand.name.toLowerCase().replace(/\s+/g, '-')}.campaign.site`;
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(fullHtml);
+    navigator.clipboard.writeText(baseHtml);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [fullHtml]);
+  }, [baseHtml]);
+
+  const handleVariantCopy = useCallback(() => {
+    if (!variantHtml) return;
+    navigator.clipboard.writeText(variantHtml);
+    setCopiedVariant(true);
+    setTimeout(() => setCopiedVariant(false), 2000);
+  }, [variantHtml]);
 
   return (
     <div className="w-full max-w-4xl text-center animate-fade-in">
@@ -164,9 +180,27 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ assets, onRestart }) =>
             </button>
           </div>
           <pre className="p-4 text-sm overflow-x-auto max-h-96 bg-slate-850/50">
-            <code className="language-html">{fullHtml}</code>
+            <code className="language-html">{baseHtml}</code>
           </pre>
       </div>
+
+      {variantHtml && (
+        <div className="text-left bg-slate-850 border border-slate-700/50 rounded-xl mt-6 shadow-2xl overflow-hidden">
+          <div className="flex justify-between items-center p-3 bg-slate-900 border-b border-slate-700/50">
+            <div className="flex items-center gap-2">
+                <CodeIcon className="w-5 h-5 text-slate-400" />
+                <span className="text-sm font-medium text-slate-300">variant-b.html</span>
+            </div>
+            <button onClick={handleVariantCopy} className="flex items-center gap-2 px-3 py-1.5 text-xs bg-slate-700 rounded-md hover:bg-slate-600 transition-colors duration-200">
+                <ClipboardIcon className="w-4 h-4" />
+                {copiedVariant ? 'Copied!' : 'Copy Code'}
+            </button>
+          </div>
+          <pre className="p-4 text-sm overflow-x-auto max-h-96 bg-slate-850/50">
+            <code className="language-html">{variantHtml}</code>
+          </pre>
+        </div>
+      )}
 
       <button onClick={onRestart} className="mt-8 px-8 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold rounded-lg hover:from-violet-500 hover:to-indigo-500 transition-all duration-300 shadow-lg transform hover:scale-105">
           Create Another Campaign

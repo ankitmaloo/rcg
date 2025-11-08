@@ -1,268 +1,163 @@
-import type { CampaignAssets, BrandKit, LandingPageContent } from '../types';
+import type { CampaignAssets, BrandKit } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000';
 
+// Type for tracking partial results during streaming
+export type PartialAssets = {
+  landingPageHtml?: string;
+  instagramAdImage?: string;
+  copyVariants?: string[];
+  videoStatus?: string;
+};
 /**
- * Generate campaign assets (non-streaming)
+ * Generate all campaign assets in parallel
  */
-export async function generateCampaignAssets(prompt: string, brandKit: BrandKit): Promise<CampaignAssets> {
-  const response = await fetch(`${API_BASE_URL}/generate-campaign-assets`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ prompt, brandKit }),
-  });
+export async function generateCampaignAssets(prompt: string, brandKit: BrandKit, onProgress?: (partial: PartialAssets) => void): Promise<CampaignAssets> {
+  const brandName = brandKit.name || 'Default Brand';
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to generate campaign assets');
+  // Make parallel requests
+  const [landingPageRes, /*instagramRes, copyRes, videoRes*/] = await Promise.all([
+    fetch(`${API_BASE_URL}/generate-landing-page`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, brand_name: brandName }),
+    }),
+    /*
+    fetch(`${API_BASE_URL}/generate-instagram-ad`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, brand_name: brandName }),
+    }),
+    fetch(`${API_BASE_URL}/generate-copy-variants`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, brand_name: brandName }),
+    }),
+    fetch(`${API_BASE_URL}/generate-video`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, brand_name: brandName }),
+    }),*/
+  ]);
+
+  // Check responses
+  if (!landingPageRes.ok /*|| !instagramRes.ok || !copyRes.ok || !videoRes.ok */) {
+    throw new Error('Failed to generate campaign assets');
   }
 
-  return response.json();
+  const [landingPage,/* instagram, copy, video*/] = await Promise.all([
+        streamResponse(landingPageRes, (partial) => onProgress?.({ landingPageHtml: partial })),
+    /*streamResponse(instagramRes),
+    streamResponse(copyRes),
+    streamResponse(videoRes),*/
+  ]);
+
+  return {
+    landingPageHtml: landingPage.html,
+    /*instagramAdImage: instagram.image,
+    copyVariants: copy.copy,
+    videoStatus: video.status,*/
+  };
 }
 
-/**
- * Generate campaign assets with streaming support
- * Each chunk is delivered as it's generated for real-time updates
- */
-export async function generateCampaignAssetsStream(
-  prompt: string,
-  brandKit: BrandKit,
-  onChunk: (chunk: string) => void,
-  onComplete: (data: CampaignAssets) => void,
-  onError: (error: Error) => void
-): Promise<void> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/generate-campaign-assets-stream`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ prompt, brandKit }),
-    });
+async function streamResponse(
+  response: Response, 
+  onUpdate?: (partial: any) => void
+): Promise<any> {
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let accumulatedResult: any = null;
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to generate campaign assets');
-    }
+  // Initialize based on expected response type
+  if (response.url.includes('/generate-landing-page')) {
+    accumulatedResult = { html: '' };
+  } else if (response.url.includes('/generate-instagram-ad')) {
+    accumulatedResult = { image: '' };
+  } else if (response.url.includes('/generate-copy-variants')) {
+    accumulatedResult = { copy: [] };
+  } else if (response.url.includes('/generate-video')) {
+    accumulatedResult = { status: '' };
+  }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('Response body is not readable');
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let fullText = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-
-      // Keep the last incomplete line in the buffer
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = JSON.parse(line.slice(6));
-
-          if (data.error) {
-            throw new Error(data.error);
-          }
-
-          if (data.chunk) {
-            fullText += data.chunk;
-            onChunk(data.chunk);
+  if (reader) {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        // Split by newlines and process complete JSON objects
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep the last incomplete line in buffer
+        
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const jsonChunk = JSON.parse(line.trim());
+              
+              // Accumulate based on response type
+              if (jsonChunk.html !== undefined) {
+                accumulatedResult.html += jsonChunk.html;
+              }
+              if (jsonChunk.image !== undefined) {
+                accumulatedResult.image = jsonChunk.image; // Instagram probably sends full image
+              }
+              if (jsonChunk.copy !== undefined) {
+                if (Array.isArray(jsonChunk.copy)) {
+                  accumulatedResult.copy = [...new Set([...accumulatedResult.copy, ...jsonChunk.copy])];
+                } else if (typeof jsonChunk.copy === 'string') {
+                  accumulatedResult.copy.push(jsonChunk.copy);
+                }
+              }
+              if (jsonChunk.status !== undefined) {
+                accumulatedResult.status = jsonChunk.status;
+              }
+              
+              // Notify update
+              onUpdate?.({...accumulatedResult});
+            } catch (e) {
+              // Skip malformed JSON lines
+              console.warn('Malformed JSON line:', line);
+            }
           }
         }
       }
-    }
-
-    // Parse the complete response
-    if (fullText) {
-      const result = JSON.parse(fullText);
-      onComplete(result);
-    }
-  } catch (error) {
-    onError(error instanceof Error ? error : new Error('Unknown error occurred'));
-  }
-}
-
-/**
- * Generate image asset (non-streaming)
- */
-export async function generateImageAsset(prompt: string): Promise<string> {
-    const response = await fetch(`${API_BASE_URL}/generate-image-asset`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ prompt }),
-    });
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to generate image asset');
-    }
-
-    const data = await response.json();
-    return data.image_data;
-}
-
-/**
- * Generate image asset with streaming support
- */
-export async function generateImageAssetStream(
-  prompt: string,
-  onChunk: (chunk: string) => void,
-  onComplete: (imageData: string) => void,
-  onError: (error: Error) => void
-): Promise<void> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/generate-image-asset-stream`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ prompt }),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to generate image asset');
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('Response body is not readable');
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let fullData = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = JSON.parse(line.slice(6));
-
-          if (data.error) {
-            throw new Error(data.error);
+      
+      // Process any remaining data in buffer
+      if (buffer.trim()) {
+        try {
+          const finalJson = JSON.parse(buffer.trim());
+          
+          // Final accumulation
+          if (finalJson.html !== undefined) {
+            accumulatedResult.html += finalJson.html;
           }
-
-          if (data.chunk) {
-            fullData += data.chunk;
-            onChunk(data.chunk);
+          if (finalJson.image !== undefined) {
+            accumulatedResult.image = finalJson.image;
           }
+          if (finalJson.copy !== undefined) {
+            if (Array.isArray(finalJson.copy)) {
+              accumulatedResult.copy = [...new Set([...accumulatedResult.copy, ...finalJson.copy])];
+            } else if (typeof finalJson.copy === 'string') {
+              accumulatedResult.copy.push(finalJson.copy);
+            }
+          }
+          if (finalJson.status !== undefined) {
+            accumulatedResult.status = finalJson.status;
+          }
+          
+          // Final update
+          onUpdate?.({...accumulatedResult});
+        } catch (e) {
+          console.warn('Malformed final JSON:', buffer);
         }
       }
+    } finally {
+      reader.releaseLock();
     }
-
-    if (fullData) {
-      onComplete(fullData);
-    }
-  } catch (error) {
-    onError(error instanceof Error ? error : new Error('Unknown error occurred'));
   }
-}
 
-/**
- * Generate landing page variant (non-streaming)
- */
-export async function generateLandingPageVariant(baseAssets: CampaignAssets): Promise<LandingPageContent> {
-    const response = await fetch(`${API_BASE_URL}/generate-landing-page-variant`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(baseAssets),
-    });
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to generate landing page variant');
-    }
-
-    return response.json();
-}
-
-/**
- * Generate landing page variant with streaming support
- */
-export async function generateLandingPageVariantStream(
-  baseAssets: CampaignAssets,
-  onChunk: (chunk: string) => void,
-  onComplete: (data: LandingPageContent) => void,
-  onError: (error: Error) => void
-): Promise<void> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/generate-landing-page-variant-stream`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(baseAssets),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to generate landing page variant');
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('Response body is not readable');
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let fullText = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = JSON.parse(line.slice(6));
-
-          if (data.error) {
-            throw new Error(data.error);
-          }
-
-          if (data.chunk) {
-            fullText += data.chunk;
-            onChunk(data.chunk);
-          }
-        }
-      }
-    }
-
-    if (fullText) {
-      const result = JSON.parse(fullText);
-      onComplete(result);
-    }
-  } catch (error) {
-    onError(error instanceof Error ? error : new Error('Unknown error occurred'));
-  }
+  return accumulatedResult;
 }
