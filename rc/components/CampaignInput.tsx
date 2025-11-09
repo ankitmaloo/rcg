@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
 import SparklesIcon from './icons/SparklesIcon';
-import type { BrandKit } from '../types';
+import type { BrandKit, AssetSelection } from '../types';
 
 interface CampaignInputProps {
-  onGenerate: (prompt: string, brandKit: BrandKit) => void;
+  onGenerate: (prompt: string, brandKit: BrandKit, assetSelection: AssetSelection) => void;
   error: string | null;
 }
 
@@ -12,12 +12,18 @@ const CampaignInput: React.FC<CampaignInputProps> = ({ onGenerate, error }) => {
   const [showBrandKit, setShowBrandKit] = useState(false);
   const [brandKit, setBrandKit] = useState<BrandKit>({font: 'Sora'});
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [assetSelection, setAssetSelection] = useState<AssetSelection>({
+    landingPage: true,
+    ad: true,
+    copies: true,
+    video: true,
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (prompt.trim()) {
-      onGenerate(prompt, brandKit);
+      onGenerate(prompt, brandKit, assetSelection);
     }
   };
   
@@ -124,6 +130,16 @@ const CampaignInput: React.FC<CampaignInputProps> = ({ onGenerate, error }) => {
           {showBrandKit && (
             <div className="p-4 md:p-5 border-t border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 bg-slate-950/40">
               <div className="space-y-2">
+                <label className="block text-sm font-medium text-slate-300">Brand Name</label>
+                <input
+                  type="text"
+                  value={brandKit.name || ''}
+                  onChange={e => setBrandKit(prev => ({...prev, name: e.target.value}))}
+                  placeholder="Enter your brand name"
+                  className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md focus:ring-1 focus:ring-violet-500 focus:border-violet-500 text-slate-100 placeholder-slate-500"
+                />
+              </div>
+              <div className="space-y-2">
                 <label className="block text-sm font-medium text-slate-300">Logo</label>
                 <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full text-sm text-center bg-slate-700 hover:bg-slate-600 transition-colors text-slate-300 px-4 py-2 rounded-md">
                     {logoPreview ? 'Change Logo' : 'Upload Logo'}
@@ -157,6 +173,56 @@ const CampaignInput: React.FC<CampaignInputProps> = ({ onGenerate, error }) => {
               </div>
             </div>
           )}
+        </div>
+
+        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 md:p-5 transition-all shadow-[0_12px_35px_rgba(15,23,42,0.9)]">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-gradient-to-tr from-violet-500 to-indigo-500 flex items-center justify-center text-slate-50 text-xs">
+              ✓
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm md:text-base font-semibold text-slate-200">Select Assets to Generate</span>
+              <span className="text-[10px] md:text-xs text-slate-500">Choose which campaign assets you want to create</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={assetSelection.landingPage}
+                onChange={(e) => setAssetSelection(prev => ({ ...prev, landingPage: e.target.checked }))}
+                className="w-4 h-4 text-violet-600 bg-slate-700 border-slate-600 rounded focus:ring-violet-500 focus:ring-2"
+              />
+              <span className="text-sm text-slate-300">Landing Page</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={assetSelection.ad}
+                onChange={(e) => setAssetSelection(prev => ({ ...prev, ad: e.target.checked }))}
+                className="w-4 h-4 text-violet-600 bg-slate-700 border-slate-600 rounded focus:ring-violet-500 focus:ring-2"
+              />
+              <span className="text-sm text-slate-300">Ad Image</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={assetSelection.copies}
+                onChange={(e) => setAssetSelection(prev => ({ ...prev, copies: e.target.checked }))}
+                className="w-4 h-4 text-violet-600 bg-slate-700 border-slate-600 rounded focus:ring-violet-500 focus:ring-2"
+              />
+              <span className="text-sm text-slate-300">Copy Variants</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={assetSelection.video}
+                onChange={(e) => setAssetSelection(prev => ({ ...prev, video: e.target.checked }))}
+                className="w-4 h-4 text-violet-600 bg-slate-700 border-slate-600 rounded focus:ring-violet-500 focus:ring-2"
+              />
+              <span className="text-sm text-slate-300">Video</span>
+            </label>
+          </div>
         </div>
 
         <div className="pt-3 md:pt-4 flex flex-col sm:flex-row items-center justify-center gap-3 md:gap-4">

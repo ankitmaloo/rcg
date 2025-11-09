@@ -57,8 +57,11 @@ async def generate_landing_page(request: GenerateRequest):
 async def generate_instagram_ad(request: GenerateRequest):
     """Generate Instagram image ad"""
     try:
-        result = await ai_assistant.generate_instagram_ad(request.prompt, request.brand_name)
-        return {"image": result}
+        async def generate_stream():
+            async for chunk_data in ai_assistant.generate_instagram_ad(request.prompt, request.brand_name):
+                yield json.dumps(chunk_data) + "\n"
+
+        return StreamingResponse(generate_stream(), media_type="application/json")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate Instagram ad: {str(e)}")
 
@@ -75,3 +78,21 @@ async def generate_copy_variants(request: GenerateRequest):
 async def generate_video(request: GenerateRequest):
     """Generate video (placeholder)"""
     return {"status": "building"}
+
+@app.post("/generate-landing-page-ab-test")
+async def generate_landing_page_ab_test(request: dict):
+    """Generate A/B test variant of landing page HTML"""
+    try:
+        html_content = request.get("html", "")
+        brand_name = request.get("brand_name", "Default Brand")
+
+        async def generate_stream():
+            full_text = ""
+            async for chunk_data in ai_assistant.generate_landing_page_ab_test(html_content, brand_name):
+                full_text += chunk_data["html"]
+                # Yield each chunk as JSON line
+                yield json.dumps(chunk_data) + "\n"
+
+        return StreamingResponse(generate_stream(), media_type="application/json")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate A/B test variant: {str(e)}")

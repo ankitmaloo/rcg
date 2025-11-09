@@ -1,62 +1,91 @@
-import type { CampaignAssets, BrandKit } from '../types';
+import type { CampaignAssets, BrandKit, AssetSelection } from '../types';
+import { generateCampaignVideo } from './videoService';
 
 const API_BASE_URL = 'http://localhost:8000';
 
 // Type for tracking partial results during streaming
 export type PartialAssets = {
-  landingPageHtml?: string;
+  landingPageHtml?: { html: string };
   instagramAdImage?: string;
   copyVariants?: string[];
-  videoStatus?: string;
+  videoUrl?: string;
 };
 /**
- * Generate all campaign assets in parallel
+ * Generate selected campaign assets in parallel
  */
-export async function generateCampaignAssets(prompt: string, brandKit: BrandKit, onProgress?: (partial: PartialAssets) => void): Promise<CampaignAssets> {
+export async function generateCampaignAssets(prompt: string, brandKit: BrandKit, assetSelection: AssetSelection, onProgress?: (partial: PartialAssets) => void): Promise<CampaignAssets> {
   const brandName = brandKit.name || 'Default Brand';
 
-  // Make parallel requests
-  const [landingPageRes, /*instagramRes, copyRes, videoRes*/] = await Promise.all([
-    fetch(`${API_BASE_URL}/generate-landing-page`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, brand_name: brandName }),
-    }),
-    /*
-    fetch(`${API_BASE_URL}/generate-instagram-ad`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, brand_name: brandName }),
-    }),
-    fetch(`${API_BASE_URL}/generate-copy-variants`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, brand_name: brandName }),
-    }),
-    fetch(`${API_BASE_URL}/generate-video`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, brand_name: brandName }),
-    }),*/
-  ]);
+  // Start video generation in parallel if selected
+  const videoPromise = assetSelection.video ? generateCampaignVideo(brandKit).catch((error) => {
+    console.error('Video generation failed:', error);
+    return undefined; // Return undefined if video fails, don't break the whole process
+  }) : Promise.resolve(undefined);
 
-  // Check responses
-  if (!landingPageRes.ok /*|| !instagramRes.ok || !copyRes.ok || !videoRes.ok */) {
-    throw new Error('Failed to generate campaign assets');
+  // Prepare fetch promises for selected assets
+  const fetchPromises: Promise<Response>[] = [];
+  const assetTypes: string[] = [];
+
+  if (assetSelection.landingPage) {
+    fetchPromises.push(fetch(`${API_BASE_URL}/generate-landing-page`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, brand_name: brandName, brandkit:brandKit }),
+    }));
+    assetTypes.push('landingPage');
   }
 
-  const [landingPage,/* instagram, copy, video*/] = await Promise.all([
-        streamResponse(landingPageRes, (partial) => onProgress?.({ landingPageHtml: partial })),
-    /*streamResponse(instagramRes),
-    streamResponse(copyRes),
-    streamResponse(videoRes),*/
-  ]);
+  if (assetSelection.ad) {
+    fetchPromises.push(fetch(`${API_BASE_URL}/generate-instagram-ad`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, brand_name: brandName, model: "models/gemini-2.5-flash-image", brandkit:brandKit }),
+    }));
+    assetTypes.push('instagram');
+  }
+
+  if (assetSelection.copies) {
+    fetchPromises.push(fetch(`${API_BASE_URL}/generate-copy-variants`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: `Generate five copy variants for: ${prompt}`, brand_name: brandName, model: "models/gemini-2.5-flash" , brandkit:brandKit}),
+    }));
+    assetTypes.push('copy');
+  }
+
+  // Make parallel requests for selected assets
+  const responses = await Promise.all(fetchPromises);
+
+  // Check responses - only throw for critical landing page failure if selected
+  const landingPageIndex = assetTypes.indexOf('landingPage');
+  if (assetSelection.landingPage && landingPageIndex !== -1 && !responses[landingPageIndex].ok) {
+    throw new Error('Failed to generate landing page');
+  }
+
+  // Stream responses for selected assets
+  const results: { [key: string]: any } = {};
+
+  for (let i = 0; i < responses.length; i++) {
+    const response = responses[i];
+    const assetType = assetTypes[i];
+
+    if (assetType === 'landingPage') {
+      results.landingPage = await streamResponse(response, (partial) => onProgress?.({ landingPageHtml: { html: partial.html } }));
+    } else if (assetType === 'instagram') {
+      results.instagram = response.ok ? await streamResponse(response, (partial) => onProgress?.({ instagramAdImage: partial.image })) : { image: '' };
+    } else if (assetType === 'copy') {
+      results.copy = response.ok ? await streamResponse(response, (partial) => onProgress?.({ copyVariants: partial.copy })) : { copy: [] };
+    }
+  }
+
+  // Wait for video generation to complete if selected
+  const videoUrl = await videoPromise;
 
   return {
-    landingPageHtml: landingPage.html,
-    /*instagramAdImage: instagram.image,
-    copyVariants: copy.copy,
-    videoStatus: video.status,*/
+    landingPageHtml: results.landingPage?.html || undefined,
+    instagramAdImage: results.instagram?.image || undefined,
+    copyVariants: results.copy?.copy || undefined,
+    videoUrl,
   };
 }
 
@@ -102,7 +131,7 @@ async function streamResponse(
                 accumulatedResult.html += jsonChunk.html;
               }
               if (jsonChunk.image !== undefined) {
-                accumulatedResult.image = jsonChunk.image; // Instagram probably sends full image
+                accumulatedResult.image += jsonChunk.image; // Accumulate base64 chunks
               }
               if (jsonChunk.copy !== undefined) {
                 if (Array.isArray(jsonChunk.copy)) {
@@ -115,8 +144,21 @@ async function streamResponse(
                 accumulatedResult.status = jsonChunk.status;
               }
               
-              // Notify update
-              onUpdate?.({...accumulatedResult});
+              // Notify update - format for partial assets
+              const partialUpdate: PartialAssets = {};
+              if (jsonChunk.html !== undefined) {
+                partialUpdate.landingPageHtml = { html: accumulatedResult.html };
+              }
+              if (jsonChunk.image !== undefined) {
+                partialUpdate.instagramAdImage = accumulatedResult.image;
+              }
+              if (jsonChunk.copy !== undefined) {
+                partialUpdate.copyVariants = accumulatedResult.copy;
+              }
+              if (jsonChunk.status !== undefined) {
+                partialUpdate.videoUrl = accumulatedResult.status;
+              }
+              onUpdate?.(partialUpdate);
             } catch (e) {
               // Skip malformed JSON lines
               console.warn('Malformed JSON line:', line);
@@ -135,7 +177,7 @@ async function streamResponse(
             accumulatedResult.html += finalJson.html;
           }
           if (finalJson.image !== undefined) {
-            accumulatedResult.image = finalJson.image;
+            accumulatedResult.image += finalJson.image;
           }
           if (finalJson.copy !== undefined) {
             if (Array.isArray(finalJson.copy)) {
@@ -160,4 +202,69 @@ async function streamResponse(
   }
 
   return accumulatedResult;
+}
+
+/**
+ * Generate A/B test variant of landing page
+ */
+export async function generateLandingPageABTest(html: string, brandName: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/generate-landing-page-ab-test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ html, brand_name: brandName }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to generate A/B test variant');
+  }
+
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let accumulatedHtml = '';
+
+  if (reader) {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Split by newlines and process complete JSON objects
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep the last incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const jsonChunk = JSON.parse(line.trim());
+              if (jsonChunk.html !== undefined) {
+                accumulatedHtml += jsonChunk.html;
+              }
+            } catch (e) {
+              // Skip malformed JSON lines
+              console.warn('Malformed JSON line:', line);
+            }
+          }
+        }
+      }
+
+      // Process any remaining data in buffer
+      if (buffer.trim()) {
+        try {
+          const finalJson = JSON.parse(buffer.trim());
+          if (finalJson.html !== undefined) {
+            accumulatedHtml += finalJson.html;
+          }
+        } catch (e) {
+          console.warn('Malformed final JSON:', buffer);
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  return accumulatedHtml;
 }

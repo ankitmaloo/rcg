@@ -8,7 +8,7 @@ interface LoaderProps {
         landingPageHtml?: { html: string };
         instagramAdImage?: string;
         copyVariants?: string[];
-        videoStatus?: string;
+        videoUrl?: string;
     };
 }
 
@@ -155,10 +155,23 @@ const PartialAssetTabs: React.FC<{ partialAssets: LoaderProps['partialAssets'] }
       case 'Video':
         return (
           <div className="p-4">
-            {partialAssets?.videoStatus ? (
-              <div className="text-slate-300">{partialAssets.videoStatus}</div>
+            {partialAssets?.videoUrl ? (
+              <video
+                src={partialAssets.videoUrl}
+                controls
+                className="w-full h-auto rounded"
+                preload="metadata"
+              >
+                Your browser does not support the video tag.
+              </video>
             ) : (
-              <div className="text-slate-400 text-center py-8">Preparing video...</div>
+              <div className="text-slate-400 text-center py-8">
+                <div className="relative w-8 h-8 flex items-center justify-center mx-auto mb-2">
+                  <span className="absolute inset-0 border border-slate-600 rounded-full" />
+                  <span className="absolute inset-1 border-2 border-violet-500/90 rounded-full animate-spin" />
+                </div>
+                Generating cinematic video...
+              </div>
             )}
           </div>
         );
@@ -228,7 +241,7 @@ const Loader: React.FC<LoaderProps> = ({ text, partialAssets }) => {
         (partialAssets.landingPageHtml && partialAssets.landingPageHtml.html.length > 0) ||
         partialAssets.instagramAdImage !== undefined ||
         partialAssets.copyVariants !== undefined ||
-        partialAssets.videoStatus !== undefined
+        partialAssets.videoUrl !== undefined
     );
 
   return (

@@ -1,26 +1,28 @@
 // App.tsx
 import React, { useState, useCallback } from 'react';
-import type { CampaignAssets, BrandKit } from './types';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import type { CampaignAssets, BrandKit, AssetSelection } from './types';
 import { AppState } from './types';
 import { generateCampaignAssets } from './services/geminiService';
 import CampaignInput from './components/CampaignInput';
 import CampaignPreview from './components/CampaignPreview';
 import DeploymentView from './components/DeploymentView';
 import Loader from './components/Loader';
+import LandingPageFullView from './components/LandingPageFullView';
 
 // Type for tracking partial results during streaming
 export type PartialAssets = {
   landingPageHtml?: { html: string };
   instagramAdImage?: string;
   copyVariants?: string[];
-  videoStatus?: string;
+  videoUrl?: string;
 };
 
 const createInitialPartialAssets = (): PartialAssets => ({
   landingPageHtml: { html: '' },
   instagramAdImage: '',
   copyVariants: [],
-  videoStatus: '',
+  videoUrl: '',
 });
 
 const App: React.FC = () => {
@@ -30,7 +32,7 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState<string | undefined>();
   const [partialAssets, setPartialAssets] = useState<PartialAssets | null>(null);
 
-  const handleGenerate = useCallback(async (prompt: string, brandKit: BrandKit) => {
+  const handleGenerate = useCallback(async (prompt: string, brandKit: BrandKit, assetSelection: AssetSelection) => {
     setLoadingMessage("Generating Your Campaign");
     setAppState(AppState.LOADING);
     setError(null);
@@ -38,15 +40,15 @@ const App: React.FC = () => {
     setPartialAssets(createInitialPartialAssets());
 
     try {
-      const assets = await generateCampaignAssets(prompt, brandKit, (partial) => {
+      const assets = await generateCampaignAssets(prompt, brandKit, assetSelection, (partial) => {
         setPartialAssets(prev => {
           const baseState = prev ?? createInitialPartialAssets();
 
           // For HTML, use the latest accumulated value from the stream.
           const updatedLandingPage = partial.landingPageHtml
             ? (() => {
-                const previousHtml = baseState.landingPageHtml?.html ?? '';
-                const incomingHtml = partial.landingPageHtml?.html ?? '';
+                const previousHtml = typeof baseState.landingPageHtml === 'object' && baseState.landingPageHtml?.html ? baseState.landingPageHtml.html : '';
+                const incomingHtml = typeof partial.landingPageHtml === 'object' && partial.landingPageHtml?.html ? partial.landingPageHtml.html : '';
 
                 // Gemini streams the full buffer each time; guard against duplication when the backend changes.
                 if (incomingHtml.startsWith(previousHtml)) {
@@ -103,9 +105,16 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen w-full font-sans flex flex-col items-center justify-center p-4 lg:p-8">
-      {renderContent()}
-    </div>
+    <Router>
+      <Routes>
+        <Route path="/landing-page-full" element={<LandingPageFullView />} />
+        <Route path="/" element={
+          <div className="min-h-screen w-full font-sans flex flex-col items-center justify-center p-4 lg:p-8">
+            {renderContent()}
+          </div>
+        } />
+      </Routes>
+    </Router>
   );
 };
 

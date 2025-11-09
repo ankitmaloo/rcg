@@ -160,50 +160,90 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ assets, onRestart }) =>
   return (
     <div className="w-full max-w-4xl text-center animate-fade-in">
        <div className="flex flex-col items-center justify-center mb-6">
-        <CheckCircleIcon className="w-20 h-20 text-green-400 mb-4"/>
-        <h2 className="text-4xl font-bold text-slate-100 mb-2">Campaign Deployed!</h2>
-        <p className="text-lg text-slate-400 mb-6">Your campaign page is now live (simulated).</p>
+        <div className="relative mb-4">
+          <div className="absolute -inset-4 bg-emerald-500/5 blur-2xl rounded-full" />
+          <CheckCircleIcon className="w-20 h-20 text-emerald-400 relative drop-shadow-[0_0_24px_rgba(52,211,153,0.45)]" />
+        </div>
+        <h2 className="text-4xl font-semibold md:font-extrabold text-slate-50 mb-1 tracking-tight">
+          Campaign Deployed.
+        </h2>
+        <p className="text-sm md:text-base text-slate-400 mb-4 max-w-xl">
+          A polished, conversion-optimized experience is now ready to go live across your stack.
+        </p>
       </div>
-      <a href="#" onClick={(e) => e.preventDefault()} className="text-xl font-mono bg-slate-800 text-indigo-400 px-4 py-2 rounded-lg border border-slate-700 hover:border-indigo-500 transition-colors">
-        https://{subdomain}
-      </a>
+
+      <div className="space-y-4 mb-8">
+        <div className="flex items-center justify-center gap-3">
+          <a
+            href="#"
+            onClick={(e) => e.preventDefault()}
+            className="inline-flex items-center text-sm md:text-base font-mono bg-slate-950/90 text-violet-300 px-4 py-2.5 rounded-xl border border-violet-600/40 hover:border-violet-400/70 hover:text-violet-200 transition-all duration-200 shadow-[0_14px_40px_rgba(15,23,42,0.95)]"
+          >
+            https://{subdomain}
+          </a>
+          <span className="hidden md:inline-flex items-center px-2.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-[9px] uppercase tracking-[0.18em] text-slate-500">
+            Landing page deployed
+          </span>
+        </div>
+
+        <div className="flex items-center justify-center gap-3">
+          <div className="inline-flex items-center gap-2 bg-blue-950/90 text-blue-300 px-4 py-2.5 rounded-xl border border-blue-600/40">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
+            </svg>
+            <span className="text-sm md:text-base font-medium">Ad uploaded to Facebook Ads Manager</span>
+          </div>
+          <span className="hidden md:inline-flex items-center px-2.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-[9px] uppercase tracking-[0.18em] text-slate-500">
+            Ready to launch
+          </span>
+        </div>
+      </div>
       
-      <div className="text-left bg-slate-850 border border-slate-700/50 rounded-xl mt-8 shadow-2xl overflow-hidden">
-          <div className="flex justify-between items-center p-3 bg-slate-900 border-b border-slate-700/50">
+      <div className="text-left bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 border border-slate-800/80 rounded-2xl mt-8 shadow-[0_18px_60px_rgba(15,23,42,0.9)] overflow-hidden">
+          <div className="flex justify-between items-center px-4 py-3 bg-slate-950/95 backdrop-blur border-b border-slate-800/80">
             <div className="flex items-center gap-2">
-                <CodeIcon className="w-5 h-5 text-slate-400" />
-                <span className="text-sm font-medium text-slate-300">index.html</span>
+                <CodeIcon className="w-4 h-4 text-violet-400" />
+                <span className="text-xs font-medium text-slate-200 tracking-wide">index.html · Production-ready markup</span>
             </div>
-            <button onClick={handleCopy} className="flex items-center gap-2 px-3 py-1.5 text-xs bg-slate-700 rounded-md hover:bg-slate-600 transition-colors duration-200">
-                <ClipboardIcon className="w-4 h-4" />
-                {copied ? 'Copied!' : 'Copy Code'}
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium bg-slate-900/90 text-slate-200 rounded-md border border-slate-700 hover:border-violet-500/60 hover:bg-slate-900 transition-all duration-200"
+            >
+                <ClipboardIcon className="w-3.5 h-3.5" />
+                {copied ? 'Copied' : 'Copy code'}
             </button>
           </div>
-          <pre className="p-4 text-sm overflow-x-auto max-h-96 bg-slate-850/50">
+          <pre className="p-4 text-[10px] md:text-[11px] leading-relaxed overflow-x-auto max-h-96 bg-slate-950/95 text-slate-200/95">
             <code className="language-html">{baseHtml}</code>
           </pre>
       </div>
 
       {variantHtml && (
-        <div className="text-left bg-slate-850 border border-slate-700/50 rounded-xl mt-6 shadow-2xl overflow-hidden">
-          <div className="flex justify-between items-center p-3 bg-slate-900 border-b border-slate-700/50">
+        <div className="text-left bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 border border-slate-800/80 rounded-2xl mt-6 shadow-[0_18px_60px_rgba(15,23,42,0.9)] overflow-hidden">
+          <div className="flex justify-between items-center px-4 py-3 bg-slate-950/95 backdrop-blur border-b border-slate-800/80">
             <div className="flex items-center gap-2">
-                <CodeIcon className="w-5 h-5 text-slate-400" />
-                <span className="text-sm font-medium text-slate-300">variant-b.html</span>
+                <CodeIcon className="w-4 h-4 text-violet-400" />
+                <span className="text-xs font-medium text-slate-200 tracking-wide">variant-b.html · Test variant</span>
             </div>
-            <button onClick={handleVariantCopy} className="flex items-center gap-2 px-3 py-1.5 text-xs bg-slate-700 rounded-md hover:bg-slate-600 transition-colors duration-200">
-                <ClipboardIcon className="w-4 h-4" />
-                {copiedVariant ? 'Copied!' : 'Copy Code'}
+            <button
+              onClick={handleVariantCopy}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium bg-slate-900/90 text-slate-200 rounded-md border border-slate-700 hover:border-violet-500/60 hover:bg-slate-900 transition-all duration-200"
+            >
+                <ClipboardIcon className="w-3.5 h-3.5" />
+                {copiedVariant ? 'Copied' : 'Copy code'}
             </button>
           </div>
-          <pre className="p-4 text-sm overflow-x-auto max-h-96 bg-slate-850/50">
+          <pre className="p-4 text-[10px] md:text-[11px] leading-relaxed overflow-x-auto max-h-80 bg-slate-950/95 text-slate-200/95">
             <code className="language-html">{variantHtml}</code>
           </pre>
         </div>
       )}
 
-      <button onClick={onRestart} className="mt-8 px-8 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold rounded-lg hover:from-violet-500 hover:to-indigo-500 transition-all duration-300 shadow-lg transform hover:scale-105">
-          Create Another Campaign
+      <button
+        onClick={onRestart}
+        className="mt-8 inline-flex items-center justify-center px-7 py-3 bg-slate-950/95 text-slate-100 text-xs font-semibold rounded-xl border border-slate-700 hover:border-violet-500/50 hover:bg-slate-900 transition-all duration-250 shadow-[0_10px_30px_rgba(15,23,42,0.9)]"
+      >
+          Create another campaign
       </button>
     </div>
   );
