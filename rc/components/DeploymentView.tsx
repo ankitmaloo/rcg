@@ -3,6 +3,7 @@ import type { CampaignAssets, LandingPageContent } from '../types';
 import ClipboardIcon from './icons/ClipboardIcon';
 import CodeIcon from './icons/CodeIcon';
 import CheckCircleIcon from './icons/CheckCircleIcon';
+import { saveLandingPage } from '../services/geminiService';
 
 interface DeploymentViewProps {
   assets: CampaignAssets;
@@ -137,6 +138,9 @@ const generateFullHtml = (assets: CampaignAssets): string => {
 const DeploymentView: React.FC<DeploymentViewProps> = ({ assets, onRestart }) => {
   const [copied, setCopied] = useState(false);
   const [copiedVariant, setCopiedVariant] = useState(false);
+  const [savedUrl, setSavedUrl] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const baseHtml = assets.landingPageHtml
     ?? (assets.landingPage ? generateFullHtml(assets) : '<!-- Landing page HTML unavailable -->');
@@ -157,6 +161,36 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ assets, onRestart }) =>
     setTimeout(() => setCopiedVariant(false), 2000);
   }, [variantHtml]);
 
+  const handleSave = useCallback(async () => {
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      const result = await saveLandingPage(
+        baseHtml,
+        assets.brand,
+        variantHtml,
+        assets.seo,
+        undefined
+      );
+
+      // Construct full URL with current domain
+      const fullUrl = `${window.location.origin}${result.url}`;
+      setSavedUrl(fullUrl);
+    } catch (error) {
+      console.error('Failed to save landing page:', error);
+      setSaveError('Failed to save landing page. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [baseHtml, assets.brand, variantHtml, assets.seo]);
+
+  const handleCopyUrl = useCallback(() => {
+    if (savedUrl) {
+      navigator.clipboard.writeText(savedUrl);
+    }
+  }, [savedUrl]);
+
   return (
     <div className="w-full max-w-4xl text-center animate-fade-in">
        <div className="flex flex-col items-center justify-center mb-6">
@@ -173,30 +207,93 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ assets, onRestart }) =>
       </div>
 
       <div className="space-y-4 mb-8">
-        <div className="flex items-center justify-center gap-3">
-          <a
-            href="#"
-            onClick={(e) => e.preventDefault()}
-            className="inline-flex items-center text-sm md:text-base font-mono bg-slate-950/90 text-violet-300 px-4 py-2.5 rounded-xl border border-violet-600/40 hover:border-violet-400/70 hover:text-violet-200 transition-all duration-200 shadow-[0_14px_40px_rgba(15,23,42,0.95)]"
-          >
-            https://{subdomain}
-          </a>
-          <span className="hidden md:inline-flex items-center px-2.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-[9px] uppercase tracking-[0.18em] text-slate-500">
-            Landing page deployed
-          </span>
-        </div>
+        {!savedUrl ? (
+          <>
+            <div className="flex items-center justify-center gap-3">
+              <a
+                href="#"
+                onClick={(e) => e.preventDefault()}
+                className="inline-flex items-center text-sm md:text-base font-mono bg-slate-950/90 text-violet-300 px-4 py-2.5 rounded-xl border border-violet-600/40 hover:border-violet-400/70 hover:text-violet-200 transition-all duration-200 shadow-[0_14px_40px_rgba(15,23,42,0.95)]"
+              >
+                https://{subdomain}
+              </a>
+              <span className="hidden md:inline-flex items-center px-2.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-[9px] uppercase tracking-[0.18em] text-slate-500">
+                Landing page deployed
+              </span>
+            </div>
 
-        <div className="flex items-center justify-center gap-3">
-          <div className="inline-flex items-center gap-2 bg-blue-950/90 text-blue-300 px-4 py-2.5 rounded-xl border border-blue-600/40">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
-            </svg>
-            <span className="text-sm md:text-base font-medium">Ad uploaded to Facebook Ads Manager</span>
+            <div className="flex items-center justify-center gap-3">
+              <div className="inline-flex items-center gap-2 bg-blue-950/90 text-blue-300 px-4 py-2.5 rounded-xl border border-blue-600/40">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
+                </svg>
+                <span className="text-sm md:text-base font-medium">Ad uploaded to Facebook Ads Manager</span>
+              </div>
+              <span className="hidden md:inline-flex items-center px-2.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-[9px] uppercase tracking-[0.18em] text-slate-500">
+                Ready to launch
+              </span>
+            </div>
+
+            <div className="pt-4">
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white text-sm font-semibold rounded-xl hover:from-violet-500 hover:to-purple-500 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                    </svg>
+                    Save & Get Public URL
+                  </>
+                )}
+              </button>
+              {saveError && (
+                <p className="mt-2 text-sm text-red-400">{saveError}</p>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-col items-center gap-3">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-sm text-emerald-400 font-medium">Landing page saved!</span>
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <a
+                  href={savedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center text-sm md:text-base font-mono bg-slate-950/90 text-emerald-300 px-4 py-2.5 rounded-xl border border-emerald-600/40 hover:border-emerald-400/70 hover:text-emerald-200 transition-all duration-200 shadow-[0_14px_40px_rgba(15,23,42,0.95)]"
+                >
+                  {savedUrl}
+                </a>
+                <button
+                  onClick={handleCopyUrl}
+                  className="p-2.5 bg-slate-900/90 text-slate-300 rounded-lg border border-slate-700 hover:border-emerald-500/50 hover:text-emerald-300 transition-all duration-200"
+                  title="Copy URL"
+                >
+                  <ClipboardIcon className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs text-slate-400">
+                Share this URL with anyone. {variantHtml && 'A/B testing enabled - visitors will see random variants.'}
+              </p>
+            </div>
           </div>
-          <span className="hidden md:inline-flex items-center px-2.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-[9px] uppercase tracking-[0.18em] text-slate-500">
-            Ready to launch
-          </span>
-        </div>
+        )}
       </div>
       
       <div className="text-left bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 border border-slate-800/80 rounded-2xl mt-8 shadow-[0_18px_60px_rgba(15,23,42,0.9)] overflow-hidden">
