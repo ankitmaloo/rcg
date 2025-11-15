@@ -1,20 +1,39 @@
 """
 Simple file-based storage for landing pages.
 Each landing page is stored as a JSON file in data/landing-pages/
+OPTIMIZED: In-memory slug cache + thread-safe operations
 """
 import os
 import json
 import uuid
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Set
 from pathlib import Path
 import re
+import threading
 
 
 class LandingPageStorage:
     def __init__(self, base_dir: str = "data/landing-pages"):
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
+
+        # Thread-safe in-memory slug cache for O(1) lookups
+        self._slug_cache: Set[str] = set()
+        self._cache_lock = threading.Lock()
+        self._initialize_cache()
+
+    def _initialize_cache(self):
+        """Load all existing slugs into memory cache"""
+        with self._cache_lock:
+            for file_path in self.base_dir.glob("*.json"):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        if 'slug' in data:
+                            self._slug_cache.add(data['slug'])
+                except:
+                    continue
 
     def _generate_slug(self, brand_name: str, custom_slug: Optional[str] = None) -> str:
         """Generate a URL-friendly slug"""
@@ -32,16 +51,9 @@ class LandingPageStorage:
         return f"{slug}-{short_id}"
 
     def _slug_exists(self, slug: str) -> bool:
-        """Check if slug already exists"""
-        for file_path in self.base_dir.glob("*.json"):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    if data.get('slug') == slug:
-                        return True
-            except:
-                continue
-        return False
+        """Check if slug already exists (O(1) cache lookup)"""
+        with self._cache_lock:
+            return slug in self._slug_cache
 
     def save_landing_page(
         self,
@@ -80,6 +92,10 @@ class LandingPageStorage:
         file_path = self.base_dir / f"{page_id}.json"
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(landing_page, f, indent=2, ensure_ascii=False)
+
+        # Add slug to cache
+        with self._cache_lock:
+            self._slug_cache.add(slug)
 
         # Return metadata (without full HTML content to save bandwidth)
         return {
