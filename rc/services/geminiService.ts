@@ -268,3 +268,89 @@ export async function generateLandingPageABTest(html: string, brandName: string)
 
   return accumulatedHtml;
 }
+
+/**
+ * Save a landing page and get a public URL
+ */
+export async function saveLandingPage(
+  htmlContent: string,
+  brandKit?: BrandKit,
+  abVariantHtml?: string,
+  seoMetadata?: any,
+  customSlug?: string
+): Promise<{
+  success: boolean;
+  id: string;
+  slug: string;
+  url: string;
+  brand_name: string;
+  created_at: string;
+  has_ab_variant: boolean;
+}> {
+  const response = await fetch(`${API_BASE_URL}/api/save-landing-page`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      html_content: htmlContent,
+      brand_kit: brandKit,
+      ab_variant_html: abVariantHtml,
+      seo_metadata: seoMetadata,
+      custom_slug: customSlug,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to save landing page');
+  }
+
+  return await response.json();
+}
+
+/**
+ * List all saved landing pages
+ */
+export async function listLandingPages(limit: number = 100): Promise<{
+  pages: Array<{
+    id: string;
+    slug: string;
+    brand_name: string;
+    created_at: string;
+    views_count: number;
+    has_ab_variant: boolean;
+  }>;
+  count: number;
+}> {
+  const response = await fetch(`${API_BASE_URL}/api/landing-pages?limit=${limit}`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch landing pages');
+  }
+
+  return await response.json();
+}
+
+/**
+ * Get a specific landing page by ID
+ */
+export async function getLandingPageById(pageId: string): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/api/landing-pages/${pageId}`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch landing page');
+  }
+
+  return await response.json();
+}
+
+/**
+ * Delete a landing page
+ */
+export async function deleteLandingPage(pageId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/landing-pages/${pageId}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to delete landing page');
+  }
+}

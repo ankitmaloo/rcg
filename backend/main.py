@@ -3,13 +3,14 @@ Simple FastAPI Backend for Rapid Campaign Generator
 Separate endpoints for each asset type
 """
 
-from typing import Union,Annotated, List
+from typing import Union,Annotated, List, Optional, Dict
 from pydantic import BaseModel, Field
 from fastapi import FastAPI,HTTPException, Security, status, File, UploadFile, Body, Query, Form, Request
 from fastapi.security import APIKeyHeader
-from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from ai_assist import ai_assistant
+from storage import LandingPageStorage
 import json
 
 # --- Pydantic Models ---
@@ -18,9 +19,19 @@ class GenerateRequest(BaseModel):
     prompt: str
     brand_name: str = "Default Brand"
 
+class SaveLandingPageRequest(BaseModel):
+    html_content: str
+    brand_kit: Optional[Dict] = None
+    ab_variant_html: Optional[str] = None
+    seo_metadata: Optional[Dict] = None
+    custom_slug: Optional[str] = None
+
 # --- FastAPI App ---
 
 app = FastAPI(title="Rapid Campaign Generator API")
+
+# Initialize storage
+storage = LandingPageStorage()
 
 # CORS configuration
 app.add_middleware(
@@ -96,3 +107,76 @@ async def generate_landing_page_ab_test(request: dict):
         return StreamingResponse(generate_stream(), media_type="application/json")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate A/B test variant: {str(e)}")
+
+# --- Landing Page Storage Endpoints ---
+
+@app.post("/api/save-landing-page")
+async def save_landing_page(request: SaveLandingPageRequest):
+    """Save a landing page and get a public URL"""
+    try:
+        result = storage.save_landing_page(
+            html_content=request.html_content,
+            brand_kit=request.brand_kit,
+            ab_variant_html=request.ab_variant_html,
+            seo_metadata=request.seo_metadata,
+            custom_slug=request.custom_slug
+        )
+        return {
+            "success": True,
+            "id": result["id"],
+            "slug": result["slug"],
+            "url": f"/p/{result['slug']}",
+            "brand_name": result["brand_name"],
+            "created_at": result["created_at"],
+            "has_ab_variant": result["has_ab_variant"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save landing page: {str(e)}")
+
+@app.get("/p/{slug}", response_class=HTMLResponse)
+async def serve_landing_page(slug: str):
+    """Serve a public landing page by slug"""
+    page = storage.get_by_slug(slug)
+    if not page:
+        raise HTTPException(status_code=404, detail="Landing page not found")
+
+    # Serve A/B variant randomly if it exists
+    if page.get("ab_variant_html"):
+        import random
+        if random.random() < 0.5:
+            return HTMLResponse(content=page["ab_variant_html"])
+
+    return HTMLResponse(content=page["html_content"])
+
+@app.get("/api/landing-pages")
+async def list_landing_pages(limit: int = Query(100, ge=1, le=1000)):
+    """List all saved landing pages (metadata only)"""
+    try:
+        pages = storage.list_all(limit=limit)
+        return {"pages": pages, "count": len(pages)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list landing pages: {str(e)}")
+
+@app.get("/api/landing-pages/{page_id}")
+async def get_landing_page(page_id: str):
+    """Get a specific landing page by ID (includes full HTML)"""
+    page = storage.get_by_id(page_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Landing page not found")
+    return page
+
+@app.delete("/api/landing-pages/{page_id}")
+async def delete_landing_page(page_id: str):
+    """Delete a landing page by ID"""
+    success = storage.delete(page_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Landing page not found")
+    return {"success": True, "message": "Landing page deleted"}
+
+@app.patch("/api/landing-pages/{page_id}/slug")
+async def update_landing_page_slug(page_id: str, new_slug: str = Body(..., embed=True)):
+    """Update the slug of a landing page"""
+    success = storage.update_slug(page_id, new_slug)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to update slug (may already exist or page not found)")
+    return {"success": True, "new_slug": new_slug}
