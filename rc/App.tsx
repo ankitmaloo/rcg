@@ -48,7 +48,7 @@ const App: React.FC = () => {
           const baseState = prev ?? createInitialPartialAssets();
 
           // For HTML, use the latest accumulated value from the stream.
-          const updatedLandingPage = partial.landingPageHtml
+          const updatedLandingPageHtml = partial.landingPageHtml
             ? (() => {
                 const previousHtml = typeof baseState.landingPageHtml === 'object' && baseState.landingPageHtml?.html ? baseState.landingPageHtml.html : '';
                 const incomingHtml = typeof partial.landingPageHtml === 'object' && partial.landingPageHtml?.html ? partial.landingPageHtml.html : '';
@@ -62,10 +62,12 @@ const App: React.FC = () => {
               })()
             : baseState.landingPageHtml;
 
+          // Create new object with new references for all properties to trigger React re-render
           return {
-            ...baseState,
-            ...partial,
-            landingPageHtml: updatedLandingPage
+            landingPageHtml: updatedLandingPageHtml,
+            instagramAdImage: partial.instagramAdImage !== undefined ? partial.instagramAdImage : baseState.instagramAdImage,
+            copyVariants: partial.copyVariants !== undefined ? partial.copyVariants : baseState.copyVariants,
+            videoUrl: partial.videoUrl !== undefined ? partial.videoUrl : baseState.videoUrl,
           };
         });
       });
